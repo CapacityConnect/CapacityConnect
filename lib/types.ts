@@ -89,6 +89,9 @@ export interface LibraryResource {
   uploadedBy: string
   uploadedByName: string
   createdAt: number
+  // Flags a resource as a vetted, org-wide institutional knowledge asset
+  // (vs. an ordinary upload). Set by the uploading trainer or an admin.
+  isInstitutionalKnowledge?: boolean
 }
 
 export interface Resource {
@@ -238,3 +241,26 @@ export interface Feedback {
 }
 
 export const COMPETENCIES = ["Data Analysis", "Communication", "Digital Skills", "Problem Solving", "Leadership"] as const
+
+export type EvidenceStatus = "pending" | "needs-revision" | "verified"
+
+// A trainee-submitted, trainer-verified proof of applied competency (a report,
+// deliverable link, or write-up) tied to a specific course/competency. This is
+// what turns a completed course into a verified line on the capability
+// passport, independent of the assessment score.
+export interface Evidence {
+  id: string
+  userId: string
+  userName: string
+  courseId: string
+  courseTitle: string
+  competency: string
+  trainerId: string
+  title: string
+  description: string
+  fileUrl?: string
+  status: EvidenceStatus
+  reviewNote?: string
+  reviewedAt?: number
+  createdAt: number
+}

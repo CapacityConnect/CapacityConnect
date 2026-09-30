@@ -3,11 +3,13 @@
 import { useEffect, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
-import { CheckCircle2, Circle, Clock, Download, FileText, Star, Users } from "lucide-react"
+import { CheckCircle2, Circle, Clock, Download, FileText, ShieldCheck, Star, Users } from "lucide-react"
 import { useAuth } from "@/contexts/auth-context"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
@@ -22,9 +24,22 @@ import { listResourcesForCourse } from "@/lib/firebase/resources"
 import { getAssessmentForCourse } from "@/lib/firebase/assessments"
 import { checkForCertificate } from "@/lib/firebase/certificates"
 import { submitFeedback } from "@/lib/firebase/feedback"
-import { formatFileSize } from "@/lib/format"
+import { listEvidenceForCourse, submitEvidence } from "@/lib/firebase/evidence"
+import { formatFileSize, formatDate } from "@/lib/format"
 import { auth } from "@/lib/firebase/config"
-import type { Assessment, Course, Enrollment, Resource } from "@/lib/types"
+import type { Assessment, Course, Enrollment, Evidence, Resource } from "@/lib/types"
+
+const EVIDENCE_STATUS_STYLE: Record<Evidence["status"], string> = {
+  pending: "bg-secondary text-secondary-foreground",
+  "needs-revision": "bg-destructive/10 text-destructive",
+  verified: "bg-success/10 text-success",
+}
+
+const EVIDENCE_STATUS_LABEL: Record<Evidence["status"], string> = {
+  pending: "Pending review",
+  "needs-revision": "Needs revision",
+  verified: "Verified",
+}
 
 export default function CourseDetailPage() {
   const params = useParams<{ id: string }>()
@@ -38,6 +53,11 @@ export default function CourseDetailPage() {
   const [rating, setRating] = useState(5)
   const [comment, setComment] = useState("")
   const [submittingFeedback, setSubmittingFeedback] = useState(false)
+  const [evidenceList, setEvidenceList] = useState<Evidence[]>([])
+  const [evidenceTitle, setEvidenceTitle] = useState("")
+  const [evidenceDescription, setEvidenceDescription] = useState("")
+  const [evidenceLink, setEvidenceLink] = useState("")
+  const [submittingEvidence, setSubmittingEvidence] = useState(false)
 
   useEffect(() => {
     if (!appUser) return
@@ -59,12 +79,43 @@ export default function CourseDetailPage() {
       setResources(r)
       setAssessment(a)
       setLoading(false)
+      if (e) {
+        const ev = await listEvidenceForCourse(appUser!.uid, c.id)
+        if (mounted) setEvidenceList(ev)
+      }
     }
     load()
     return () => {
       mounted = false
     }
   }, [appUser, params.id])
+
+  async function handleSubmitEvidence() {
+    if (!appUser || !course || !evidenceTitle.trim() || !evidenceDescription.trim()) return
+    setSubmittingEvidence(true)
+    try {
+      const created = await submitEvidence({
+        userId: appUser.uid,
+        userName: appUser.name,
+        courseId: course.id,
+        courseTitle: course.title,
+        competency: course.competency,
+        trainerId: course.trainerId,
+        title: evidenceTitle.trim(),
+        description: evidenceDescription.trim(),
+        fileUrl: evidenceLink.trim() || undefined,
+      })
+      setEvidenceList((prev) => [created, ...prev])
+      setEvidenceTitle("")
+      setEvidenceDescription("")
+      setEvidenceLink("")
+      toast.success("Evidence submitted for trainer review.")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to submit evidence.")
+    } finally {
+      setSubmittingEvidence(false)
+    }
+  }
 
   async function handleEnroll() {
     if (!appUser || !course) return
@@ -234,6 +285,77 @@ export default function CourseDetailPage() {
                 >
                   {enrollment ? "Take assessment" : "Enroll to unlock"}
                 </Button>
+              </CardContent>
+            </Card>
+          )}
+
+          {enrollment && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <ShieldCheck className="size-4 text-primary" /> Evidence of applied skill
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-xs text-muted-foreground">
+                  Submit a deliverable, report, or write-up that shows you applied {course.competency} on the job.
+                  Verified evidence strengthens your capability passport beyond the quiz score.
+                </p>
+                {evidenceList.length > 0 && (
+                  <div className="space-y-2">
+                    {evidenceList.map((ev) => (
+                      <div key={ev.id} className="rounded-md border border-border p-2.5 text-xs">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="font-medium text-foreground">{ev.title}</p>
+                          <Badge className={EVIDENCE_STATUS_STYLE[ev.status]} variant="secondary">
+                            {EVIDENCE_STATUS_LABEL[ev.status]}
+                          </Badge>
+                        </div>
+                        <p className="mt-1 text-muted-foreground">{formatDate(ev.createdAt)}</p>
+                        {ev.status === "needs-revision" && ev.reviewNote && (
+                          <p className="mt-1 rounded-sm bg-destructive/5 p-2 text-destructive">{ev.reviewNote}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="space-y-2 border-t border-border pt-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="ev-title">Title</Label>
+                    <Input
+                      id="ev-title"
+                      value={evidenceTitle}
+                      onChange={(e) => setEvidenceTitle(e.target.value)}
+                      placeholder="e.g. Quarterly report I drafted"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="ev-desc">Description</Label>
+                    <Textarea
+                      id="ev-desc"
+                      value={evidenceDescription}
+                      onChange={(e) => setEvidenceDescription(e.target.value)}
+                      placeholder="What did you do, and how does it demonstrate this skill?"
+                      rows={3}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="ev-link">Link (optional)</Label>
+                    <Input
+                      id="ev-link"
+                      value={evidenceLink}
+                      onChange={(e) => setEvidenceLink(e.target.value)}
+                      placeholder="Link to the document or deliverable"
+                    />
+                  </div>
+                  <Button
+                    className="w-full"
+                    disabled={submittingEvidence || !evidenceTitle.trim() || !evidenceDescription.trim()}
+                    onClick={handleSubmitEvidence}
+                  >
+                    Submit for review
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           )}

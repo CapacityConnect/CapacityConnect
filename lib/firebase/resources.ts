@@ -60,6 +60,7 @@ export function uploadLibraryResource(
     category: LibraryResourceCategory
     uploadedBy: string
     uploadedByName: string
+    isInstitutionalKnowledge?: boolean
   },
   onProgress: (pct: number) => void,
 ): Promise<LibraryResource> {
@@ -88,6 +89,7 @@ export function uploadLibraryResource(
           uploadedBy: meta.uploadedBy,
           uploadedByName: meta.uploadedByName,
           createdAt: Date.now(),
+          ...(meta.isInstitutionalKnowledge ? { isInstitutionalKnowledge: true } : {}),
         }
         await setDoc(resourceRef, resource)
         resolve(resource)
