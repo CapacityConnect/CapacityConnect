@@ -7,3 +7,6 @@ minimumReleaseAgeExclude:
 allowBuilds:
   '@firebase/util': true
   protobufjs: true
+
+overrides:
+  jose: 4.15.9
