@@ -12,7 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "sonner"
 import { listCourses } from "@/lib/firebase/courses"
 import { listPendingUsers, listUsers } from "@/lib/firebase/users"
-import { seedDemoData } from "@/lib/firebase/seed"
+import { auth } from "@/lib/firebase/config"
 import { listAllCompetencyRecords } from "@/lib/firebase/competencies"
 import { listAllCertificates } from "@/lib/firebase/certificates"
 import { COMPETENCIES } from "@/lib/types"
@@ -51,13 +51,24 @@ export default function AdminDashboard() {
   async function handleSeed() {
     if (!appUser) return
     setSeeding(true)
-    const result = await seedDemoData(appUser.uid)
-    setSeeding(false)
-    if (result.seeded) {
-      toast.success("Demo data seeded")
-      load()
-    } else {
-      toast.info(result.reason ?? "Demo data already exists")
+    try {
+      const token = await auth.currentUser?.getIdToken()
+      const res = await fetch("/api/admin/seed", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error ?? "Failed to seed demo data")
+      if (result.seeded) {
+        toast.success("Demo data seeded")
+        window.location.reload()
+      } else {
+        toast.info(result.reason ?? "Demo data already exists")
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to seed demo data")
+    } finally {
+      setSeeding(false)
     }
   }
 
