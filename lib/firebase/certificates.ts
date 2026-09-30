@@ -2,6 +2,11 @@ import { collection, doc, getDoc, getDocs, orderBy, query, where } from "firebas
 import { db } from "@/lib/firebase/config"
 import type { Certificate } from "@/lib/types"
 
+export async function listAllCertificates(): Promise<Certificate[]> {
+  const snap = await getDocs(query(collection(db, "certificates"), orderBy("issuedAt", "desc")))
+  return snap.docs.map((d) => d.data() as Certificate)
+}
+
 export async function listCertificatesForUser(userId: string): Promise<Certificate[]> {
   const snap = await getDocs(
     query(collection(db, "certificates"), where("userId", "==", userId), orderBy("issuedAt", "desc")),

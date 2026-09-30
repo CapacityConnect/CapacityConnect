@@ -19,3 +19,29 @@ export function computeCompetencyUpdate(current: number, target: number, assessm
   const improvement = newScore - current
   return { newScore, improvement, rawDelta }
 }
+
+/**
+ * Deterministic, explainable "readiness" score: how close a learner is to
+ * being job-ready for the roles their competencies feed into. Blends how far
+ * along their tracked competencies are (60%) with tangible proof of applied
+ * skill — trainer-verified evidence (up to 20%) and earned certificates (up
+ * to 20%) — so the score can't be gamed by quiz scores alone.
+ */
+export function computeReadinessScore(
+  competencyAttainmentPercent: number,
+  verifiedEvidenceCount: number,
+  certificateCount: number,
+) {
+  const competencyPart = Math.max(0, Math.min(100, competencyAttainmentPercent)) * 0.6
+  const evidencePart = Math.min(verifiedEvidenceCount * 10, 20)
+  const certificatePart = Math.min(certificateCount * 10, 20)
+  return Math.round(competencyPart + evidencePart + certificatePart)
+}
+
+/** Average of (current/target)*100 across tracked competencies, capped at 100 per skill. */
+export function averageCompetencyAttainment(scores: Record<string, { current: number; target: number }>) {
+  const entries = Object.values(scores)
+  if (entries.length === 0) return 0
+  const total = entries.reduce((sum, s) => sum + Math.min(100, (s.current / Math.max(s.target, 1)) * 100), 0)
+  return Math.round(total / entries.length)
+}

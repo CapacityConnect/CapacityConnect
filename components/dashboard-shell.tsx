@@ -5,6 +5,7 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import {
   Award,
+  BadgeCheck,
   BarChart3,
   Bell,
   BookOpen,
@@ -62,6 +63,7 @@ const NAV_ITEMS: Record<Role, NavItem[]> = {
     { href: "/trainer/courses", label: "My Courses", icon: BookOpen },
     { href: "/trainer/participation", label: "Participation", icon: BarChart3 },
     { href: "/trainer/library", label: "Resource Library", icon: Library },
+    { href: "/trainer/evidence", label: "Evidence Review", icon: BadgeCheck },
     { href: "/trainer/feedback", label: "Feedback", icon: MessageSquare },
   ],
   admin: [

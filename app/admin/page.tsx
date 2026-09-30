@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
-import { Activity, BarChart3, BookOpen, Database, GraduationCap, UserCheck, Users } from "lucide-react"
+import { Activity, Award, BarChart3, BookOpen, Database, FileCheck2, GraduationCap, UserCheck, Users } from "lucide-react"
 import { useAuth } from "@/contexts/auth-context"
 import { StatCard } from "@/components/stat-card"
 import { CompetencyBar } from "@/components/competency-bar"
@@ -14,8 +14,9 @@ import { listCourses } from "@/lib/firebase/courses"
 import { listPendingUsers, listUsers } from "@/lib/firebase/users"
 import { seedDemoData } from "@/lib/firebase/seed"
 import { listAllCompetencyRecords } from "@/lib/firebase/competencies"
+import { listAllCertificates } from "@/lib/firebase/certificates"
 import { COMPETENCIES } from "@/lib/types"
-import type { AppUser, CompetencyRecord, CompetencyScore, Course } from "@/lib/types"
+import type { AppUser, Certificate, CompetencyRecord, CompetencyScore, Course } from "@/lib/types"
 
 export default function AdminDashboard() {
   const { appUser } = useAuth()
@@ -23,20 +24,23 @@ export default function AdminDashboard() {
   const [pending, setPending] = useState<AppUser[]>([])
   const [courses, setCourses] = useState<Course[]>([])
   const [competencyRecords, setCompetencyRecords] = useState<CompetencyRecord[]>([])
+  const [certificates, setCertificates] = useState<Certificate[]>([])
   const [loading, setLoading] = useState(true)
   const [seeding, setSeeding] = useState(false)
 
   async function load() {
-    const [u, p, c, cr] = await Promise.all([
+    const [u, p, c, cr, cert] = await Promise.all([
       listUsers(),
       listPendingUsers(),
       listCourses(),
       listAllCompetencyRecords(),
+      listAllCertificates(),
     ])
     setUsers(u)
     setPending(p)
     setCourses(c)
     setCompetencyRecords(cr)
+    setCertificates(cert)
     setLoading(false)
   }
 
@@ -100,6 +104,13 @@ export default function AdminDashboard() {
           <StatCard label="Trainers" value={trainerCount} icon={GraduationCap} />
           <StatCard label="Courses" value={courses.length} icon={BookOpen} />
           <StatCard label="Pending approvals" value={pending.length} icon={UserCheck} />
+        </div>
+      )}
+
+      {!loading && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <StatCard label="Certificates issued" value={certificates.length} icon={Award} />
+          <StatCard label="Enrollments" value={totalEnrollments} icon={FileCheck2} />
         </div>
       )}
 

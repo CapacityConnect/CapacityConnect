@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
-import { Award, BarChart3, BookOpen, GraduationCap, Megaphone, Target } from "lucide-react"
+import { Award, BarChart3, BookOpen, Gauge, GraduationCap, Megaphone, Target } from "lucide-react"
 import { useAuth } from "@/contexts/auth-context"
 import { StatCard } from "@/components/stat-card"
 import { CompetencyBar } from "@/components/competency-bar"
@@ -13,8 +13,10 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { ensureCompetencyRecord, getPriorityGap } from "@/lib/firebase/competencies"
 import { listEnrollmentsForUser, listCoursesByCompetency, getCourse } from "@/lib/firebase/courses"
 import { listCertificatesForUser } from "@/lib/firebase/certificates"
+import { listEvidenceForUser } from "@/lib/firebase/evidence"
 import { listAnnouncements } from "@/lib/firebase/announcements"
 import { formatRelativeTime } from "@/lib/format"
+import { averageCompetencyAttainment, computeReadinessScore } from "@/lib/competency-math"
 import type { Announcement, CompetencyRecord, Course, Enrollment } from "@/lib/types"
 
 export default function TraineeDashboard() {
@@ -23,6 +25,7 @@ export default function TraineeDashboard() {
   const [competencyRecord, setCompetencyRecord] = useState<CompetencyRecord | null>(null)
   const [enrollments, setEnrollments] = useState<Enrollment[]>([])
   const [certificateCount, setCertificateCount] = useState(0)
+  const [verifiedEvidenceCount, setVerifiedEvidenceCount] = useState(0)
   const [recommended, setRecommended] = useState<Course[]>([])
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
 
@@ -30,16 +33,18 @@ export default function TraineeDashboard() {
     if (!appUser) return
     let mounted = true
     async function load() {
-      const [record, userEnrollments, certificates, allAnnouncements] = await Promise.all([
+      const [record, userEnrollments, certificates, allAnnouncements, evidence] = await Promise.all([
         ensureCompetencyRecord(appUser!.uid),
         listEnrollmentsForUser(appUser!.uid),
         listCertificatesForUser(appUser!.uid),
         listAnnouncements(),
+        listEvidenceForUser(appUser!.uid),
       ])
       if (!mounted) return
       setCompetencyRecord(record)
       setEnrollments(userEnrollments)
       setCertificateCount(certificates.length)
+      setVerifiedEvidenceCount(evidence.filter((e) => e.status === "verified").length)
       setAnnouncements(
         allAnnouncements.filter((a) => a.audience === "all" || a.audience === "trainee").slice(0, 4),
       )
@@ -61,6 +66,11 @@ export default function TraineeDashboard() {
   const priorityGap = getPriorityGap(competencyRecord)
   const inProgressCount = enrollments.filter((e) => e.status === "in-progress").length
   const completedCount = enrollments.filter((e) => e.status === "completed").length
+  const readinessScore = computeReadinessScore(
+    competencyRecord ? averageCompetencyAttainment(competencyRecord.scores) : 0,
+    verifiedEvidenceCount,
+    certificateCount,
+  )
 
   return (
     <div className="flex flex-col gap-6">
@@ -76,7 +86,8 @@ export default function TraineeDashboard() {
           ))}
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          <StatCard label="Job readiness" value={`${readinessScore}%`} icon={Gauge} hint="Skills + verified proof" />
           <StatCard label="Courses in progress" value={inProgressCount} icon={BookOpen} />
           <StatCard label="Courses completed" value={completedCount} icon={GraduationCap} />
           <StatCard label="Certificates earned" value={certificateCount} icon={Award} />

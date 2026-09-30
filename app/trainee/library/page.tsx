@@ -1,11 +1,12 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { FileText, Presentation, Video } from "lucide-react"
+import { FileText, Landmark, Presentation, Video } from "lucide-react"
 import { DashboardShell } from "@/components/dashboard-shell"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { formatFileSize, formatRelativeTime } from "@/lib/format"
 import { listLibraryResources } from "@/lib/firebase/resources"
 import type { LibraryResource, LibraryResourceCategory } from "@/lib/types"
@@ -26,6 +27,7 @@ export default function TraineeLibraryPage() {
   const [resources, setResources] = useState<LibraryResource[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState("")
+  const [filter, setFilter] = useState<"all" | "institutional">("all")
 
   useEffect(() => {
     listLibraryResources().then((list) => {
@@ -36,8 +38,9 @@ export default function TraineeLibraryPage() {
 
   const filtered = resources.filter(
     (r) =>
-      r.title.toLowerCase().includes(search.toLowerCase()) ||
-      r.description?.toLowerCase().includes(search.toLowerCase()),
+      (filter === "all" || r.isInstitutionalKnowledge) &&
+      (r.title.toLowerCase().includes(search.toLowerCase()) ||
+        r.description?.toLowerCase().includes(search.toLowerCase())),
   )
 
   return (
@@ -50,12 +53,22 @@ export default function TraineeLibraryPage() {
           </p>
         </div>
 
-        <Input
-          placeholder="Search materials..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="max-w-sm"
-        />
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <Input
+            placeholder="Search materials..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="max-w-sm"
+          />
+          <Tabs value={filter} onValueChange={(v) => setFilter(v as "all" | "institutional")}>
+            <TabsList>
+              <TabsTrigger value="all">All materials</TabsTrigger>
+              <TabsTrigger value="institutional" className="gap-1.5">
+                <Landmark className="size-3.5" /> Institutional knowledge
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
 
         <div className="space-y-3">
           {loading ? (
@@ -85,7 +98,14 @@ export default function TraineeLibraryPage() {
                       </div>
                     </div>
                     <div className="flex flex-col items-end gap-2">
-                      <Badge variant="secondary">{CATEGORY_LABEL[r.category]}</Badge>
+                      <div className="flex gap-1.5">
+                        {r.isInstitutionalKnowledge && (
+                          <Badge className="gap-1 bg-accent text-accent-foreground">
+                            <Landmark className="size-3" /> Institutional
+                          </Badge>
+                        )}
+                        <Badge variant="secondary">{CATEGORY_LABEL[r.category]}</Badge>
+                      </div>
                       <a href={r.url} target="_blank" rel="noreferrer" className="text-xs font-medium text-primary underline">
                         Open
                       </a>

@@ -227,6 +227,25 @@ service cloud.firestore {
       allow delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
     }
 
+    // ----------------------------------------------------------- evidence
+    // Trainees submit proof of applied skill against a course they're
+    // enrolled in; only the owning trainer or an admin may move it out of
+    // "pending". trainerId is stamped from the course at submit time so
+    // review queries can filter directly on it.
+    match /evidence/{evidenceId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isStaff());
+      allow create: if isApproved()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.status == "pending"
+        && request.resource.data.trainerId == course(request.resource.data.courseId).trainerId
+        && exists(/databases/$(database)/documents/enrollments/$(request.auth.uid + "_" + request.resource.data.courseId));
+      allow update: if isAdmin() || (
+        isApprovedTrainer() && resource.data.trainerId == request.auth.uid
+        && onlyChanges(["status", "reviewNote", "reviewedAt"])
+      );
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
