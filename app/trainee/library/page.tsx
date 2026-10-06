@@ -1,0 +1,124 @@
+"use client"
+
+import { useCallback, useEffect, useState } from "react"
+import { FileText, Landmark, Presentation, Video } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
+import { Card, CardContent } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { formatFileSize, formatRelativeTime } from "@/lib/format"
+import { listLibraryResources } from "@/lib/firebase/resources"
+import type { LibraryResource, LibraryResourceCategory } from "@/lib/types"
+import { LiveDataError } from "@/components/live-data-state"
+
+const CATEGORY_LABEL: Record<LibraryResourceCategory, string> = {
+  "recorded-lecture": "Recorded lecture",
+  presentation: "Presentation",
+  "study-material": "Study material",
+}
+
+const CATEGORY_ICON: Record<LibraryResourceCategory, typeof Video> = {
+  "recorded-lecture": Video,
+  presentation: Presentation,
+  "study-material": FileText,
+}
+
+export default function TraineeLibraryPage() {
+  const [resources, setResources] = useState<LibraryResource[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [search, setSearch] = useState("")
+  const [filter, setFilter] = useState<"all" | "institutional">("all")
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null)
+    try { setResources(await listLibraryResources()) }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to load the live library.") }
+    finally { setLoading(false) }
+  }, [])
+  useEffect(() => { void load() }, [load])
+
+  const filtered = resources.filter(
+    (r) =>
+      (filter === "all" || r.isInstitutionalKnowledge) &&
+      (r.title.toLowerCase().includes(search.toLowerCase()) ||
+        r.description?.toLowerCase().includes(search.toLowerCase())),
+  )
+
+  return (
+      <div className="mx-auto max-w-4xl space-y-6">
+        <div>
+          <h1 className="text-2xl font-serif font-semibold">Trainer Library</h1>
+          <p className="text-sm text-muted-foreground">
+            Recorded lectures, presentations, and study materials shared by trainers.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <Input
+            placeholder="Search materials..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="max-w-sm"
+          />
+          <Tabs value={filter} onValueChange={(v) => setFilter(v as "all" | "institutional")}>
+            <TabsList>
+              <TabsTrigger value="all">All materials</TabsTrigger>
+              <TabsTrigger value="institutional" className="gap-1.5">
+                <Landmark className="size-3.5" /> Institutional knowledge
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
+
+        <div className="space-y-3">
+          {loading ? (
+            <p className="text-sm text-muted-foreground">Loading...</p>
+          ) : error ? (
+            <LiveDataError message={error} onRetry={() => void load()} />
+          ) : filtered.length === 0 ? (
+            <Card>
+              <CardContent className="py-10 text-center text-sm text-muted-foreground">
+                No materials found.
+              </CardContent>
+            </Card>
+          ) : (
+            filtered.map((r) => {
+              const Icon = CATEGORY_ICON[r.category]
+              return (
+                <Card key={r.id}>
+                  <CardContent className="flex items-start justify-between gap-4 py-4">
+                    <div className="flex items-start gap-3">
+                      <div className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-md bg-secondary">
+                        <Icon className="size-4" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium">{r.title}</p>
+                        {r.description && <p className="text-sm text-muted-foreground">{r.description}</p>}
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          By {r.uploadedByName} · {formatFileSize(r.fileSize)} · {formatRelativeTime(r.createdAt)}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end gap-2">
+                      <div className="flex gap-1.5">
+                        {r.isInstitutionalKnowledge && (
+                          <Badge className="gap-1 bg-accent text-accent-foreground">
+                            <Landmark className="size-3" /> Institutional
+                          </Badge>
+                        )}
+                        <Badge variant="secondary">{CATEGORY_LABEL[r.category]}</Badge>
+                      </div>
+                      <a href={r.url} target="_blank" rel="noreferrer" className="text-xs font-medium text-primary underline">
+                        Open
+                      </a>
+                    </div>
+                  </CardContent>
+                </Card>
+              )
+            })
+          )}
+        </div>
+      </div>
+  )
+}

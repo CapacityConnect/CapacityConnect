@@ -1,0 +1,253 @@
+rules_version = '2';
+
+// Deploy: Firebase Console -> Firestore Database -> Rules -> paste -> Publish
+// (or `firebase deploy --only firestore:rules`).
+//
+// Trust model
+// - Clients may only write data they own, and never privileged fields
+//   (role, status, ownership ids, scores, certificates, notifications).
+// - Anything that must be trustworthy (grading, competency updates,
+//   certificates, notifications/push/email fan-out, admin bootstrap) is written
+//   by the Next.js server with the Firebase Admin SDK, which bypasses these rules.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function myUser() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isApproved() {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && myUser().status == "approved";
+    }
+
+    function isAdmin() {
+      return isApproved() && myUser().role == "admin";
+    }
+
+    function isApprovedTrainer() {
+      return isApproved() && myUser().role == "trainer";
+    }
+
+    function isStaff() {
+      return isAdmin() || isApprovedTrainer();
+    }
+
+    function course(courseId) {
+      return get(/databases/$(database)/documents/courses/$(courseId)).data;
+    }
+
+    function ownsCourse(courseId) {
+      return isApprovedTrainer()
+        && exists(/databases/$(database)/documents/courses/$(courseId))
+        && course(courseId).trainerId == request.auth.uid;
+    }
+
+    function unchanged(field) {
+      return request.resource.data[field] == resource.data[field];
+    }
+
+    function onlyChanges(fields) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(fields);
+    }
+
+    // ---------------------------------------------------------------- users
+    // Signup may only create a trainee (auto-approved) or a *pending* trainer.
+    // Nobody can create an admin or self-approve as a trainer; admins are
+    // bootstrapped server-side (/api/auth/bootstrap-admin) or promoted by an admin.
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.auth.uid == userId
+        && request.resource.data.uid == userId
+        && request.resource.data.email == request.auth.token.email
+        && (
+          (request.resource.data.role == "trainee" && request.resource.data.status == "approved") ||
+          (request.resource.data.role == "trainer" && request.resource.data.status == "pending")
+        );
+      allow update: if isAdmin() || (
+        isSignedIn() && request.auth.uid == userId
+        && unchanged("role") && unchanged("status") && unchanged("uid") && unchanged("email")
+      );
+      allow delete: if false;
+    }
+
+    // ---------------------------------------------------------- competencies
+    // One doc per user, id == uid. The owner may create their baseline record;
+    // after that, scores only move through server-side grading (or an admin).
+    match /competencies/{userId} {
+      allow read: if isSignedIn() && (request.auth.uid == userId || isStaff());
+      allow create: if isSignedIn() && request.auth.uid == userId
+        && request.resource.data.userId == userId;
+      allow update: if isAdmin() && unchanged("userId");
+      allow delete: if isAdmin();
+    }
+
+    // --------------------------------------------------------------- courses
+    // Public read so the homepage can list newly published learning content.
+    match /courses/{courseId} {
+      allow read: if true;
+      allow create: if (isApprovedTrainer() && request.resource.data.trainerId == request.auth.uid
+          && request.resource.data.enrollmentCount == 0)
+        || isAdmin();
+      allow update: if isAdmin()
+        // Trainer edits: cannot transfer ownership or tamper with the counter.
+        || (isApprovedTrainer() && resource.data.trainerId == request.auth.uid
+            && unchanged("trainerId") && unchanged("enrollmentCount"))
+        // A trainee enrolling bumps the counter by exactly one in the same batch
+        // that creates their enrollment document.
+        || (isApproved() && onlyChanges(["enrollmentCount"])
+            && request.resource.data.enrollmentCount == resource.data.enrollmentCount + 1
+            && !exists(/databases/$(database)/documents/enrollments/$(request.auth.uid + "_" + courseId))
+            && existsAfter(/databases/$(database)/documents/enrollments/$(request.auth.uid + "_" + courseId)));
+      allow delete: if isAdmin() || (isApprovedTrainer() && resource.data.trainerId == request.auth.uid);
+    }
+
+    // ------------------------------------------------------ course resources
+    match /resources/{resourceId} {
+      allow read: if isSignedIn();
+      allow create: if isAdmin() || (
+        request.resource.data.uploadedBy == request.auth.uid && ownsCourse(request.resource.data.courseId)
+      );
+      allow update: if isAdmin() || (
+        isApprovedTrainer() && resource.data.uploadedBy == request.auth.uid
+        && unchanged("uploadedBy") && unchanged("courseId") && unchanged("url")
+      );
+      allow delete: if isAdmin() || (isApprovedTrainer() && resource.data.uploadedBy == request.auth.uid);
+    }
+
+    // ------------------------------------------------------ trainer library
+    match /libraryResources/{resourceId} {
+      allow read: if isSignedIn();
+      allow create: if isAdmin() || (isApprovedTrainer() && request.resource.data.uploadedBy == request.auth.uid);
+      allow update: if isAdmin() || (
+        isApprovedTrainer() && resource.data.uploadedBy == request.auth.uid
+        && unchanged("uploadedBy") && unchanged("url")
+      );
+      allow delete: if isAdmin() || (isApprovedTrainer() && resource.data.uploadedBy == request.auth.uid);
+    }
+
+    // ----------------------------------------------------------- enrollments
+    // id == `${userId}_${courseId}`. Ownership fields are immutable.
+    match /enrollments/{enrollmentId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isStaff());
+      allow create: if isApproved()
+        && request.resource.data.userId == request.auth.uid
+        && enrollmentId == request.auth.uid + "_" + request.resource.data.courseId
+        && exists(/databases/$(database)/documents/courses/$(request.resource.data.courseId))
+        && request.resource.data.progress == 0
+        && request.resource.data.completedModules.size() == 0
+        && request.resource.data.status == "in-progress";
+      allow update: if isAdmin() || (
+        isSignedIn() && resource.data.userId == request.auth.uid
+        && unchanged("userId") && unchanged("courseId") && unchanged("id")
+        && onlyChanges(["progress", "completedModules", "status", "completedAt"])
+        && request.resource.data.progress is number
+        && request.resource.data.progress >= 0 && request.resource.data.progress <= 100
+      );
+      allow delete: if isAdmin();
+    }
+
+    // ----------------------------------------------------------- assessments
+    // Trainee-readable. Questions contain no answers — see assessmentKeys.
+    match /assessments/{assessmentId} {
+      allow read: if isSignedIn();
+      allow create: if isAdmin() || ownsCourse(request.resource.data.courseId);
+      allow update: if isAdmin() || (ownsCourse(resource.data.courseId) && unchanged("courseId"));
+      allow delete: if isAdmin() || ownsCourse(resource.data.courseId);
+    }
+
+    // Answer keys: NEVER readable by trainees. Grading reads them server-side.
+    match /assessmentKeys/{assessmentId} {
+      allow read: if isAdmin() || (isApprovedTrainer() && resource.data.trainerId == request.auth.uid);
+      allow create: if isAdmin() || (
+        request.resource.data.trainerId == request.auth.uid && ownsCourse(request.resource.data.courseId)
+      );
+      allow update: if isAdmin() || (
+        resource.data.trainerId == request.auth.uid && ownsCourse(resource.data.courseId)
+        && unchanged("trainerId") && unchanged("courseId")
+      );
+      allow delete: if isAdmin() || ownsCourse(resource.data.courseId);
+    }
+
+    // Attempts are graded and written only by the server.
+    match /assessmentAttempts/{attemptId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isStaff());
+      allow write: if false;
+    }
+
+    // ---------------------------------------------------------- certificates
+    // Doc id is the unguessable certificate id, so anyone holding it can
+    // verify via a direct get. Listing is limited to the owner and staff.
+    // Issued only by the server after checking completion + a passing attempt.
+    match /certificates/{certId} {
+      allow get: if true;
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isStaff());
+      allow create, update: if false;
+      allow delete: if isAdmin();
+    }
+
+    // --------------------------------------------------------- notifications
+    // Created only by the server. Owners can read and mark as read.
+    match /notifications/{notificationId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid && onlyChanges(["read"]);
+      allow delete: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if false;
+    }
+
+    // ---------------------------------------------------------- push tokens
+    match /pushTokens/{userId} {
+      allow read, write: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    // --------------------------------------------------------- announcements
+    // Homepage items (showOnHomepage == true) are public; the rest need sign-in.
+    match /announcements/{announcementId} {
+      allow read: if isSignedIn() || resource.data.showOnHomepage == true;
+      allow create: if isAdmin() && request.resource.data.createdBy == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    // -------------------------------------------------------------- feedback
+    // Only enrolled trainees may review a course, once, under their own id.
+    match /feedback/{feedbackId} {
+      allow read: if isSignedIn();
+      allow create: if isApproved()
+        && request.resource.data.userId == request.auth.uid
+        && exists(/databases/$(database)/documents/enrollments/$(request.auth.uid + "_" + request.resource.data.courseId))
+        && request.resource.data.rating is int
+        && request.resource.data.rating >= 1 && request.resource.data.rating <= 5;
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid
+        && unchanged("userId") && unchanged("courseId");
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+    }
+
+    // ----------------------------------------------------------- evidence
+    // Trainees submit proof of applied skill against a course they're
+    // enrolled in; only the owning trainer or an admin may move it out of
+    // "pending". trainerId is stamped from the course at submit time so
+    // review queries can filter directly on it.
+    match /evidence/{evidenceId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isStaff());
+      allow create: if isApproved()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.status == "pending"
+        && request.resource.data.trainerId == course(request.resource.data.courseId).trainerId
+        && exists(/databases/$(database)/documents/enrollments/$(request.auth.uid + "_" + request.resource.data.courseId));
+      allow update: if isAdmin() || (
+        isApprovedTrainer() && resource.data.trainerId == request.auth.uid
+        && onlyChanges(["status", "reviewNote", "reviewedAt"])
+      );
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
