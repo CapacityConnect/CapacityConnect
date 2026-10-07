@@ -16,6 +16,7 @@ import { formatFileSize, formatRelativeTime } from "@/lib/format"
 import { listLibraryResources, uploadLibraryResource } from "@/lib/firebase/resources"
 import type { LibraryResource, LibraryResourceCategory } from "@/lib/types"
 import { LiveDataError } from "@/components/live-data-state"
+import { toast } from "sonner"
 
 const CATEGORY_LABEL: Record<LibraryResourceCategory, string> = {
   "recorded-lecture": "Recorded lecture",
@@ -54,24 +55,30 @@ export default function TrainerLibraryPage() {
     const file = fileInputRef.current?.files?.[0]
     if (!file || !title.trim() || !appUser) return
     setProgress(0)
-    const created = await uploadLibraryResource(
-      file,
-      {
-        title: title.trim(),
-        description: description.trim() || undefined,
-        category,
-        uploadedBy: appUser.uid,
-        uploadedByName: appUser.name,
-        isInstitutionalKnowledge: isInstitutional,
-      },
-      (pct) => setProgress(pct),
-    )
-    setResources((prev) => [created, ...prev])
-    setTitle("")
-    setDescription("")
-    setIsInstitutional(false)
-    setProgress(null)
-    if (fileInputRef.current) fileInputRef.current.value = ""
+    try {
+      const created = await uploadLibraryResource(
+        file,
+        {
+          title: title.trim(),
+          description: description.trim() || undefined,
+          category,
+          uploadedBy: appUser.uid,
+          uploadedByName: appUser.name,
+          isInstitutionalKnowledge: isInstitutional,
+        },
+        (pct) => setProgress(pct),
+      )
+      setResources((prev) => [created, ...prev])
+      setTitle("")
+      setDescription("")
+      setIsInstitutional(false)
+      toast.success("Library material uploaded")
+    } catch (cause) {
+      toast.error(cause instanceof Error ? `Upload failed: ${cause.message}` : "Upload failed")
+    } finally {
+      setProgress(null)
+      if (fileInputRef.current) fileInputRef.current.value = ""
+    }
   }
 
   return (

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useAuth } from "@/contexts/auth-context"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -15,7 +16,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { toast } from "sonner"
-import { listUsers, setUserRole } from "@/lib/firebase/users"
+import { listUsers, setUserRole, setUserStatus } from "@/lib/firebase/users"
 import type { AppUser, Role } from "@/lib/types"
 import { LiveDataError } from "@/components/live-data-state"
 
@@ -51,9 +52,30 @@ export default function AdminUsersPage() {
       toast.error("You cannot change your own role.")
       return
     }
-    await setUserRole(u.uid, role)
-    setUsers((prev) => prev.map((x) => (x.uid === u.uid ? { ...x, role, status: "approved" } : x)))
-    toast.success(`${u.name} is now ${role}`)
+    try {
+      await setUserRole(u.uid, role)
+      setUsers((prev) => prev.map((x) => (x.uid === u.uid ? { ...x, role, status: "approved" } : x)))
+      toast.success(`${u.name} is now ${role}`)
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Unable to update this user's role.")
+    }
+  }
+
+  async function handleStatusChange(u: AppUser) {
+    if (u.uid === appUser?.uid) {
+      toast.error("You cannot suspend your own account.")
+      return
+    }
+    const nextStatus = u.status === "suspended" ? "approved" : "suspended"
+    const action = nextStatus === "suspended" ? "Suspend" : "Reactivate"
+    if (!window.confirm(`${action} ${u.name}'s account?`)) return
+    try {
+      await setUserStatus(u.uid, nextStatus)
+      setUsers((prev) => prev.map((x) => (x.uid === u.uid ? { ...x, status: nextStatus } : x)))
+      toast.success(`${u.name} is ${nextStatus === "suspended" ? "suspended" : "active"}`)
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Unable to update this user's status.")
+    }
   }
 
   return (
@@ -80,6 +102,7 @@ export default function AdminUsersPage() {
                 <TableHead>Email</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Role</TableHead>
+                <TableHead>Access</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -114,6 +137,19 @@ export default function AdminUsersPage() {
                         ))}
                       </SelectContent>
                     </Select>
+                  </TableCell>
+                  <TableCell>
+                    {u.status !== "pending" && (
+                      <Button
+                        type="button"
+                        variant={u.status === "suspended" ? "outline" : "destructive"}
+                        size="sm"
+                        onClick={() => void handleStatusChange(u)}
+                        disabled={u.uid === appUser?.uid}
+                      >
+                        {u.status === "suspended" ? "Reactivate" : "Suspend"}
+                      </Button>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}

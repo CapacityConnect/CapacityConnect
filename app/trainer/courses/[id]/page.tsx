@@ -95,8 +95,8 @@ export default function TrainerCourseDetailPage() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ kind: "material", resourceTitle }),
       }).catch(() => {})
-    } catch {
-      toast.error("Upload failed")
+    } catch (cause) {
+      toast.error(cause instanceof Error ? `Upload failed: ${cause.message}` : "Upload failed")
     } finally {
       setUploadProgress(null)
       if (fileInputRef.current) fileInputRef.current.value = ""

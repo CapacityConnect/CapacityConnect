@@ -1,5 +1,5 @@
 export type Role = "trainee" | "trainer" | "admin"
-export type UserStatus = "pending" | "approved" | "rejected"
+export type UserStatus = "pending" | "approved" | "rejected" | "suspended"
 
 export interface Qualification {
   id: string

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, type ReactNode } from "react"
+import { useEffect, useRef, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/contexts/auth-context"
 import type { Role } from "@/lib/types"
@@ -8,13 +8,19 @@ import { DashboardShell } from "@/components/dashboard-shell"
 import { Skeleton } from "@/components/ui/skeleton"
 
 export function RequireRole({ role, children }: { role: Role; children: ReactNode }) {
-  const { loading, firebaseUser, appUser } = useAuth()
+  const { loading, firebaseUser, appUser, logout } = useAuth()
   const router = useRouter()
+  const suspensionHandled = useRef(false)
 
   useEffect(() => {
     if (loading) return
     if (!firebaseUser || !appUser) {
       router.replace("/login")
+      return
+    }
+    if (appUser.status === "suspended" && !suspensionHandled.current) {
+      suspensionHandled.current = true
+      void logout().finally(() => router.replace("/login"))
       return
     }
     if (appUser.status === "pending") {
@@ -24,7 +30,7 @@ export function RequireRole({ role, children }: { role: Role; children: ReactNod
     if (appUser.role !== role) {
       router.replace(`/${appUser.role}`)
     }
-  }, [loading, firebaseUser, appUser, role, router])
+  }, [loading, firebaseUser, appUser, role, router, logout])
 
   if (loading || !appUser || appUser.role !== role || appUser.status !== "approved") {
     return (

@@ -13,43 +13,65 @@ export async function listResourcesForCourse(courseId: string): Promise<Resource
   }
 }
 
-export function uploadCourseResource(
-  courseId: string,
-  file: File,
-  meta: { title: string; uploadedBy: string; uploadedByName: string; moduleId?: string },
-  onProgress: (pct: number) => void,
-): Promise<Resource> {
-  return new Promise((resolve, reject) => {
-    const path = `courses/${courseId}/${Date.now()}-${file.name}`
+function safeFileName(fileName: string) {
+  return fileName.split(/[\\/]/).pop()?.replace(/[^a-zA-Z0-9._-]/g, "-") || "upload"
+}
+
+function uploadFile(file: File, path: string, onProgress: (pct: number) => void) {
+  return new Promise<import("firebase/storage").UploadTaskSnapshot>((resolve, reject) => {
     const storageRef = ref(storage, path)
-    const task = uploadBytesResumable(storageRef, file)
+    const contentType = file.type || "application/octet-stream"
+    const task = uploadBytesResumable(storageRef, file, { contentType })
+    let settled = false
+    const timeout = setTimeout(() => {
+      if (settled) return
+      settled = true
+      task.cancel()
+      reject(new Error("Firebase Storage is unavailable. Enable Firebase Storage and billing for this project, then retry."))
+    }, 30_000)
+    function finish(callback: () => void) {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      callback()
+    }
     task.on(
       "state_changed",
       (snapshot) => {
         onProgress(Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100))
       },
-      (error) => reject(error),
-      async () => {
-        const url = await getDownloadURL(task.snapshot.ref)
-        const resourceRef = doc(collection(db, "resources"))
-        const resource: Resource = {
-          id: resourceRef.id,
-          courseId,
-          moduleId: meta.moduleId,
-          title: meta.title,
-          fileName: file.name,
-          fileType: file.type || "application/octet-stream",
-          fileSize: file.size,
-          url,
-          uploadedBy: meta.uploadedBy,
-          uploadedByName: meta.uploadedByName,
-          createdAt: Date.now(),
-        }
-        await setDoc(resourceRef, resource)
-        resolve(resource)
-      },
+      (error) => finish(() => reject(error)),
+      () => finish(() => resolve(task.snapshot)),
     )
   })
+}
+
+export async function uploadCourseResource(
+  courseId: string,
+  file: File,
+  meta: { title: string; uploadedBy: string; uploadedByName: string; moduleId?: string },
+  onProgress: (pct: number) => void,
+): Promise<Resource> {
+  const path = `courses/${courseId}/${Date.now()}-${safeFileName(file.name)}`
+  const snapshot = await uploadFile(file, path, onProgress)
+  const url = await getDownloadURL(snapshot.ref)
+  const resourceRef = doc(collection(db, "resources"))
+  const resource: Resource = {
+    id: resourceRef.id,
+    courseId,
+    moduleId: meta.moduleId,
+    title: meta.title,
+    fileName: file.name,
+    fileType: file.type || "application/octet-stream",
+    fileSize: file.size,
+    url,
+    uploadedBy: meta.uploadedBy,
+    uploadedByName: meta.uploadedByName,
+    createdAt: Date.now(),
+  }
+  await setDoc(resourceRef, resource)
+  onProgress(100)
+  return resource
 }
 
 export async function listLibraryResources(): Promise<LibraryResource[]> {
@@ -62,7 +84,7 @@ export async function listLibraryResources(): Promise<LibraryResource[]> {
   }
 }
 
-export function uploadLibraryResource(
+export async function uploadLibraryResource(
   file: File,
   meta: {
     title: string
@@ -74,36 +96,25 @@ export function uploadLibraryResource(
   },
   onProgress: (pct: number) => void,
 ): Promise<LibraryResource> {
-  return new Promise((resolve, reject) => {
-    const path = `library/${meta.uploadedBy}/${Date.now()}-${file.name}`
-    const storageRef = ref(storage, path)
-    const task = uploadBytesResumable(storageRef, file)
-    task.on(
-      "state_changed",
-      (snapshot) => {
-        onProgress(Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100))
-      },
-      (error) => reject(error),
-      async () => {
-        const url = await getDownloadURL(task.snapshot.ref)
-        const resourceRef = doc(collection(db, "libraryResources"))
-        const resource: LibraryResource = {
-          id: resourceRef.id,
-          title: meta.title,
-          description: meta.description,
-          category: meta.category,
-          fileName: file.name,
-          fileType: file.type || "application/octet-stream",
-          fileSize: file.size,
-          url,
-          uploadedBy: meta.uploadedBy,
-          uploadedByName: meta.uploadedByName,
-          createdAt: Date.now(),
-          ...(meta.isInstitutionalKnowledge ? { isInstitutionalKnowledge: true } : {}),
-        }
-        await setDoc(resourceRef, resource)
-        resolve(resource)
-      },
-    )
-  })
+  const path = `library/${meta.uploadedBy}/${Date.now()}-${safeFileName(file.name)}`
+  const snapshot = await uploadFile(file, path, onProgress)
+  const url = await getDownloadURL(snapshot.ref)
+  const resourceRef = doc(collection(db, "libraryResources"))
+  const resource: LibraryResource = {
+    id: resourceRef.id,
+    title: meta.title,
+    description: meta.description,
+    category: meta.category,
+    fileName: file.name,
+    fileType: file.type || "application/octet-stream",
+    fileSize: file.size,
+    url,
+    uploadedBy: meta.uploadedBy,
+    uploadedByName: meta.uploadedByName,
+    createdAt: Date.now(),
+    ...(meta.isInstitutionalKnowledge ? { isInstitutionalKnowledge: true } : {}),
+  }
+  await setDoc(resourceRef, resource)
+  onProgress(100)
+  return resource
 }

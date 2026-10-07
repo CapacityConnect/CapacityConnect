@@ -1,6 +1,6 @@
 import { collection, doc, getDoc, getDocs, orderBy, query, updateDoc, where } from "firebase/firestore"
 import { db } from "@/lib/firebase/config"
-import type { AppUser, Role } from "@/lib/types"
+import type { AppUser, Role, UserStatus } from "@/lib/types"
 
 export async function getUser(uid: string): Promise<AppUser | null> {
   const snap = await getDoc(doc(db, "users", uid))
@@ -24,6 +24,10 @@ export async function listPendingUsers(): Promise<AppUser[]> {
 
 export async function setUserRole(uid: string, role: Role) {
   await updateDoc(doc(db, "users", uid), { role, status: "approved" })
+}
+
+export async function setUserStatus(uid: string, status: UserStatus) {
+  await updateDoc(doc(db, "users", uid), { status })
 }
 
 export async function updateUserProfile(uid: string, data: Partial<AppUser>) {
